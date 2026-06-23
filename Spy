@@ -1,0 +1,6 @@
+-- Jalankan script ini untuk melihat semua RemoteEvent
+for _, obj in ipairs(game:GetDescendants()) do
+    if obj:IsA("RemoteEvent") then
+        print(obj:GetFullName())
+    end
+end
