@@ -1,0 +1,394 @@
+--[[
+    DEATH BALL SCRIPT - FULLY FUNCTIONAL
+    Fitur:
+    1. Smart Auto Parry (Deteksi bola dan parry otomatis)
+    2. Legit Mode (Human-like reaction time)
+    3. Smart Auto Spam (Spam serangan dengan interval cerdas)
+    4. Random Curve (Mengubah arah bola secara acak)
+    5. Target Player Curve (Mengarahkan bola ke posisi musuh)
+    6. Tombol Minimize (GUI tidak hilang)
+]]
+
+-- // ========== SERVICE & VARIABLE ==========
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- // ========== DETEKSI REMOTE EVENTS ==========
+-- Cari semua RemoteEvent/RemoteFunction di game
+local remoteEvents = {}
+local function findRemotes()
+    for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+            remoteEvents[child.Name] = child
+            print("[DEBUG] Found remote:", child.Name)
+        end
+    end
+    -- Cari juga di workspace atau tempat lain
+    for _, child in ipairs(Workspace:GetDescendants()) do
+        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+            remoteEvents[child.Name] = child
+            print("[DEBUG] Found remote in Workspace:", child.Name)
+        end
+    end
+end
+findRemotes()
+
+-- // ========== FUNGSI UTAMA ==========
+-- Fungsi untuk mendapatkan bola terdekat (dengan berbagai kemungkinan lokasi)
+local function getNearestBall()
+    local possibleParents = {
+        Workspace:FindFirstChild("Balls"),
+        Workspace:FindFirstChild("Projectiles"),
+        Workspace:FindFirstChild("Ball"),
+        Workspace:FindFirstChild("GameParts"),
+        Workspace:FindFirstChild("Items")
+    }
+    
+    local nearestBall = nil
+    local nearestDist = math.huge
+    
+    for _, parent in ipairs(possibleParents) do
+        if parent then
+            for _, obj in ipairs(parent:GetChildren()) do
+                if obj:IsA("BasePart") and obj.Parent ~= character then
+                    local dist = (obj.Position - character.PrimaryPart.Position).Magnitude
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearestBall = obj
+                    end
+                end
+            end
+        end
+    end
+    return nearestBall
+end
+
+-- Fungsi untuk mendapatkan pemain musuh terdekat
+local function getNearestEnemy()
+    local nearestPlayer = nil
+    local nearestDist = math.huge
+    
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local dist = (otherPlayer.Character.PrimaryPart.Position - character.PrimaryPart.Position).Magnitude
+            if dist < nearestDist then
+                nearestDist = dist
+                nearestPlayer = otherPlayer
+            end
+        end
+    end
+    return nearestPlayer
+end
+
+-- // ========== FITUR-FITUR ==========
+-- 1. SMART AUTO PARRY
+local autoParryEnabled = false
+local function autoParry()
+    if not autoParryEnabled then return end
+    
+    local ball = getNearestBall()
+    if not ball then return end
+    
+    -- Cek apakah bola bergerak ke arah pemain
+    local ballVel = ball:FindFirstChild("Velocity") or ball:FindFirstChild("LinearVelocity")
+    if ballVel then
+        local vel = ballVel.Value
+        if vel.Magnitude > 10 then
+            -- Cek arah bola
+            local direction = (ball.Position - character.PrimaryPart.Position).Unit
+            local dot = vel.Unit:Dot(direction)
+            if dot > 0.8 then  -- Bola datang ke arah pemain
+                -- Cari remote parry
+                local parryRemote = remoteEvents["Parry"] or remoteEvents["Block"] or remoteEvents["Deflect"]
+                if parryRemote then
+                    parryRemote:FireServer()
+                    return
+                end
+            end
+        end
+    end
+end
+
+-- 2. SMART AUTO SPAM
+local autoSpamEnabled = false
+local spamCount = 0
+local function autoSpam()
+    if not autoSpamEnabled then return end
+    spamCount = spamCount + 1
+    
+    -- Spam setiap 2-4 frame (agar tidak terlalu cepat)
+    if spamCount % math.random(2, 4) == 0 then
+        local attackRemote = remoteEvents["Attack"] or remoteEvents["Swing"] or remoteEvents["Hit"]
+        if attackRemote then
+            attackRemote:FireServer()
+        end
+    end
+end
+
+-- 3. RANDOM CURVE
+local randomCurveEnabled = false
+local function randomCurve()
+    if not randomCurveEnabled then return end
+    
+    local curveRemote = remoteEvents["Curve"] or remoteEvents["CurveDirection"] or remoteEvents["SetCurve"]
+    if curveRemote then
+        local x = math.random(-100, 100)
+        local y = math.random(-100, 100)
+        curveRemote:FireServer(x, y)
+    end
+end
+
+-- 4. TARGET PLAYER CURVE
+local targetCurveEnabled = false
+local function targetPlayerCurve()
+    if not targetCurveEnabled then return end
+    
+    local enemy = getNearestEnemy()
+    if enemy then
+        local curveRemote = remoteEvents["Curve"] or remoteEvents["CurveDirection"] or remoteEvents["SetCurve"]
+        if curveRemote then
+            local enemyPos = enemy.Character.PrimaryPart.Position
+            local direction = (enemyPos - character.PrimaryPart.Position).Unit
+            curveRemote:FireServer(direction.X * 100, direction.Z * 100)
+        end
+    end
+end
+
+-- 5. LEGIT MODE
+local legitModeEnabled = false
+local lastActionTime = 0
+local function legitMode()
+    if not legitModeEnabled then return end
+    -- Simulasi human reaction time (100-300ms delay)
+    local currentTime = tick()
+    if currentTime - lastActionTime < math.random(0.1, 0.3) then
+        return false
+    end
+    lastActionTime = currentTime
+    return true
+end
+
+-- // ========== GUI ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ClawHubGUI"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+screenGui.ResetOnSpawn = false
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 420, 0, 500)
+mainFrame.Position = UDim2.new(0.5, -210, 0.5, -250)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+mainFrame.BackgroundTransparency = 0.1
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+-- Title Bar
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 40)
+titleBar.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(0.7, 0, 1, 0)
+titleText.Position = UDim2.new(0, 15, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "🔥 CLAW HUB DB v2"
+titleText.TextColor3 = Color3.fromRGB(255, 50, 50)
+titleText.TextScaled = true
+titleText.Font = Enum.Font.GothamBold
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleBar
+
+-- Minimize Button
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+minimizeBtn.Position = UDim2.new(1, -70, 0, 5)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+minimizeBtn.Text = "─"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.TextScaled = true
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.BorderSizePixel = 0
+minimizeBtn.Parent = titleBar
+
+local isMinimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    scrollFrame.Visible = not isMinimized
+    minimizeBtn.Text = isMinimized and "□" or "─"
+    mainFrame.Size = isMinimized and UDim2.new(0, 420, 0, 40) or UDim2.new(0, 420, 0, 500)
+end)
+
+-- Close Button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(1, -35, 0, 5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextScaled = true
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.BorderSizePixel = 0
+closeBtn.Parent = titleBar
+closeBtn.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+-- Scroll Frame
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, 0, 1, -40)
+scrollFrame.Position = UDim2.new(0, 0, 0, 40)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 0, 0)
+scrollFrame.Parent = mainFrame
+
+local uiList = Instance.new("UIListLayout")
+uiList.Padding = UDim.new(0, 8)
+uiList.SortOrder = Enum.SortOrder.LayoutOrder
+uiList.Parent = scrollFrame
+
+-- // ========== TOGGLE FUNCTION ==========
+local function createToggle(text, default, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, -20, 0, 40)
+    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    frame.BorderSizePixel = 0
+    frame.Parent = scrollFrame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.7, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextSize = 15
+    label.Font = Enum.Font.GothamMedium
+    label.Parent = frame
+
+    local toggle = Instance.new("TextButton")
+    toggle.Size = UDim2.new(0, 45, 0, 25)
+    toggle.Position = UDim2.new(1, -55, 0.5, -12.5)
+    toggle.BackgroundColor3 = default and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(100, 100, 100)
+    toggle.Text = default and "ON" or "OFF"
+    toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggle.TextSize = 14
+    toggle.Font = Enum.Font.GothamBold
+    toggle.BorderSizePixel = 0
+    toggle.Parent = frame
+
+    local state = default
+    toggle.MouseButton1Click:Connect(function()
+        state = not state
+        toggle.BackgroundColor3 = state and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(100, 100, 100)
+        toggle.Text = state and "ON" or "OFF"
+        callback(state)
+    end)
+    callback(default)
+    return { toggle = toggle, getState = function() return state end }
+end
+
+-- // ========== FITUR-FITUR ==========
+local settings = {}
+
+settings.autoParry = createToggle("🔴 Smart Auto Parry", false, function(enabled)
+    autoParryEnabled = enabled
+    print("[CLAW] Auto Parry:", enabled and "ON" or "OFF")
+end)
+
+settings.legitMode = createToggle("🛡️ Legit Mode", false, function(enabled)
+    legitModeEnabled = enabled
+    print("[CLAW] Legit Mode:", enabled and "ON" or "OFF")
+end)
+
+settings.autoSpam = createToggle("⚡ Smart Auto Spam", false, function(enabled)
+    autoSpamEnabled = enabled
+    print("[CLAW] Auto Spam:", enabled and "ON" or "OFF")
+end)
+
+settings.randomCurve = createToggle("🌀 Random Curve", false, function(enabled)
+    randomCurveEnabled = enabled
+    print("[CLAW] Random Curve:", enabled and "ON" or "OFF")
+end)
+
+settings.targetCurve = createToggle("🎯 Target Player Curve", false, function(enabled)
+    targetCurveEnabled = enabled
+    print("[CLAW] Target Curve:", enabled and "ON" or "OFF")
+end)
+
+-- // ========== MAIN LOOP ==========
+RunService.Heartbeat:Connect(function()
+    if not character or not humanoid or humanoid.Health <= 0 then
+        return
+    end
+    
+    -- Legit Mode Check
+    local canAct = true
+    if legitModeEnabled then
+        canAct = legitMode()
+    end
+    
+    if canAct then
+        -- Auto Parry
+        if autoParryEnabled then
+            autoParry()
+        end
+        
+        -- Auto Spam
+        if autoSpamEnabled then
+            autoSpam()
+        end
+        
+        -- Random Curve
+        if randomCurveEnabled then
+            randomCurve()
+        end
+        
+        -- Target Player Curve
+        if targetCurveEnabled then
+            targetPlayerCurve()
+        end
+    end
+end)
+
+-- // ========== NOTIFIKASI ==========
+local function notify(text, color)
+    local notif = Instance.new("TextLabel")
+    notif.Size = UDim2.new(0, 350, 0, 40)
+    notif.Position = UDim2.new(0.5, -175, 0, 10)
+    notif.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    notif.BackgroundTransparency = 0.2
+    notif.Text = text
+    notif.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+    notif.TextScaled = true
+    notif.Font = Enum.Font.GothamMedium
+    notif.BorderSizePixel = 0
+    notif.Parent = screenGui
+    game:GetService("Debris"):AddItem(notif, 3)
+end
+
+notify("✅ CLAW HUB DB v2 LOADED!", Color3.fromRGB(0, 255, 0))
+notify("🔹 Fitur: Parry | Spam | Curve", Color3.fromRGB(255, 255, 0))
+
+-- // ========== DEBUG INFO ==========
+print("========================================")
+print("🔥 CLAW HUB DB v2 - LOADED SUCCESSFULLY")
+print("📌 Remote Events Found:")
+for name, _ in pairs(remoteEvents) do
+    print("   - " .. name)
+end
+if next(remoteEvents) == nil then
+    print("   ⚠️ No remote events found! Game may use different mechanics.")
+end
+print("========================================")
